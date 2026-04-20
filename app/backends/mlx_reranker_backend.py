@@ -277,20 +277,28 @@ class MLXCrossEncoderBackend(BaseBackend):
             input_ids = _mx_array(input_ids_np)
 
             logits = self.model(input_ids)
-            logits_np = np.array(logits.astype(mx.float32))
 
-            last_logits = logits_np[:, -1, :]
+            last_logits_mx = logits[:, -1, :]
+            yes_logits = last_logits_mx[:, self._token_yes_id]
+            no_logits = last_logits_mx[:, self._token_no_id]
 
-            for row_logits in last_logits:
-                yes_logit = float(row_logits[self._token_yes_id])
-                no_logit = float(row_logits[self._token_no_id])
+            yes_np = np.array(yes_logits.astype(mx.float32))
+            no_np = np.array(no_logits.astype(mx.float32))
 
+            del logits, last_logits_mx, yes_logits, no_logits, input_ids
+
+            for j in range(len(batch_passages)):
+                yes_logit = float(yes_np[j])
+                no_logit = float(no_np[j])
                 max_logit = max(yes_logit, no_logit)
                 yes_exp = np.exp(yes_logit - max_logit)
                 no_exp = np.exp(no_logit - max_logit)
                 score = float(yes_exp / (yes_exp + no_exp + 1e-12))
                 all_scores.append(score)
 
+            del yes_np, no_np
+
+        mx.clear_cache()
         return all_scores
 
     async def _fallback_rerank(self, query: str, passages: List[str]) -> List[float]:

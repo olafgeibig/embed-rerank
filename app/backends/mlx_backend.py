@@ -255,20 +255,28 @@ class MLXBackend(BaseBackend):
                 input_ids = _mx_array(input_ids_np)
 
                 hidden = backbone(input_ids)
-                hidden_np = np.array(hidden.astype(mx.float32))
+                hidden_float = hidden.astype(mx.float32)
+                hidden_np = np.array(hidden_float)
+
+                del hidden, hidden_float, input_ids
 
                 sequence_lengths = attention_mask_np.sum(axis=1) - 1
                 batch_embeddings = np.array([hidden_np[j, seq_len] for j, seq_len in enumerate(sequence_lengths)])
+
+                del hidden_np
 
                 norms = np.linalg.norm(batch_embeddings, axis=1, keepdims=True)
                 batch_embeddings = batch_embeddings / (norms + 1e-8)
 
                 embeddings_list.append(batch_embeddings)
 
-            return np.vstack(embeddings_list)
+            result = np.vstack(embeddings_list)
+            mx.clear_cache()
+            return result
 
         except Exception as e:
             logger.error("MLX sync embedding failed", error=str(e))
+            mx.clear_cache()
             raise
 
     async def compute_similarity(self, query_embedding: np.ndarray, passage_embeddings: np.ndarray) -> np.ndarray:
@@ -338,11 +346,11 @@ class MLXBackend(BaseBackend):
         logger.info(f"MLX reranking query with {len(passages)} passages")
 
         try:
-            query_result = await self.embed_texts([query])
-            passages_result = await self.embed_texts(passages)
+            all_texts = [query] + passages
+            result = await self.embed_texts(all_texts)
 
-            query_vector = query_result.vectors[0]
-            passage_vectors = passages_result.vectors
+            query_vector = result.vectors[0]
+            passage_vectors = result.vectors[1:]
 
             scores = await self.compute_similarity(query_vector, passage_vectors)
 
