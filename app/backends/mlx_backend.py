@@ -223,11 +223,19 @@ class MLXBackend(BaseBackend):
             logger.error("MLX embedding generation failed", num_texts=len(texts), error=str(e))
             raise RuntimeError(f"MLX embedding failed: {e}")
 
+    def _get_transformer_backbone(self):
+        if hasattr(self.model, "language_model"):
+            return self.model.language_model.model
+        if hasattr(self.model, "model"):
+            return self.model.model
+        raise RuntimeError("Cannot locate transformer backbone in loaded model")
+
     def _embed_sync(self, texts: List[str], batch_size: int) -> np.ndarray:
         try:
             if not self.model or not self._hf_tokenizer:
                 raise RuntimeError("Model or tokenizer not loaded")
 
+            backbone = self._get_transformer_backbone()
             embeddings_list = []
 
             for i in range(0, len(texts), batch_size):
@@ -246,7 +254,7 @@ class MLXBackend(BaseBackend):
 
                 input_ids = _mx_array(input_ids_np)
 
-                hidden = self.model.model(input_ids)
+                hidden = backbone(input_ids)
                 hidden_np = np.array(hidden.astype(mx.float32))
 
                 sequence_lengths = attention_mask_np.sum(axis=1) - 1
