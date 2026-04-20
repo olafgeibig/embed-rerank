@@ -36,6 +36,7 @@ dependencies = [
   "python-dotenv",
   "structlog",
   "prometheus-client",
+  "psutil",
 ]
 
 [project.optional-dependencies]
