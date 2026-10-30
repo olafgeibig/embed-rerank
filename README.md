@@ -201,7 +201,43 @@ print(rr.get("results", rr))
 - `EMBEDDING_SEND_DIM`: gate honoring OpenAI-compatible `dimensions` in `/v1/embeddings`
 - `EMBEDDING_TOKEN_LIMIT`: alias for `DEFAULT_MAX_TOKENS_OVERRIDE` (default per-text token budget)
 - `RERANK_ENABLE_CHUNKING`, `RERANK_MAX_TOKENS_PER_DOC`: Cohere-compatible rerank document chunking
-- When unset, defaults remain unchanged.
+- These compatibility options retain their existing defaults when unset; embedding input context is configured separately below.
+
+## Embedding input context
+
+`MAX_SEQUENCE_LENGTH` must be a positive integer (`>=1`); it sets the embedding server's token cap and defaults to `8192`. The effective service cap is bounded by the server/backend limit and discovered model or tokenizer metadata; if metadata is unavailable, use the conservative `8192` cap. MLX uses the lower of the server setting and any known model/tokenizer limit. Torch does not expand a loaded model's native `max_seq_length`. Preprocessing uses the effective server budget by default. A request-level preprocessing override takes precedence over the legacy `EMBEDDING_TOKEN_LIMIT` alias for `DEFAULT_MAX_TOKENS_OVERRIDE`, but neither can exceed the server/model cap. The per-request schema remains capped at `8192`, even when `MAX_SEQUENCE_LENGTH` is configured higher.
+
+Preprocessing estimates tokens as `len(text) // 4`; this is approximate. MLX uses its actual tokenizer for final truncation. Numeric warnings and `processing_info` are estimates, not exact backend token accounting, and warnings do not expose input text or token IDs. These limits do not guarantee unlimited or lossless long-text handling. For the safest long-input test across API routes, send one text per request. `BATCH_SIZE=1` alone does not guarantee per-request batching: set `batch_size: 1` in each OpenAI-compatible or native embedding request (the OpenAI-compatible route also accepts `X-MLX-Batch-Size: 1`). TEI requests should contain one text each. This embedding setting does not change `RERANK_MAX_SEQ_LEN`.
+
+Changing the cap does not update embeddings already stored in an index or recover content truncated upstream. After a model switch, rebuild all vectors consistently in each affected index from the original full texts; do not mix vectors from different models. Restart only through the managed service owner. Do not start a second server. Treat restart and reindexing as separate actions requiring separate approval.
+
+## Reranker input budgets (MLX Qwen3)
+
+Operational defaults favor a 16 GiB host, not the model's maximum context:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `RERANK_MAX_SEQ_LEN` | `8192` | Total pair tokens, including instruction, query, document, chat wrappers and suffix |
+| `RERANK_MAX_PASSAGE_TOKENS` | `6144` | Exact MLX document-token cap, further reduced by remaining pair space |
+| `RERANK_MAX_PASSAGE_CHARS` | `65536` | API safety guard on each original document, including Cohere requests before chunking |
+| `RERANK_BATCH_SIZE` | `1` | Conservative reranker batch size; larger batches and longer pairs increase memory use |
+
+All four settings must be positive integers (`>=1`); environment and dotenv overrides are supported. Blank values use these defaults. The [official Qwen3-Reranker-0.6B model card](https://huggingface.co/Qwen/Qwen3-Reranker-0.6B) advertises **32k context** and uses `max_length=8192` in its reference example. Effective pair capacity is the minimum of the configured budget, known native model/tokenizer limits and the conservative official `32768` Qwen3-Reranker ceiling. A converted checkpoint reporting `max_position_embeddings=40960` is metadata, not proof of tested 40,960-token serving. Raising a limit requires separate memory/quality validation.
+
+The exact MLX allowance is:
+
+```text
+overhead = tokenized instruction + query + document label + system/chat wrappers + scoring suffix
+document allowance = min(RERANK_MAX_PASSAGE_TOKENS, effective pair cap - overhead)
+```
+
+The header and document are tokenized separately, then concatenated with the wrappers and suffix. Instruction/query/template tokens are preserved; only document token IDs are truncated. Truncation warnings contain numeric counts/limits, not query/document text. Queries leaving no document-token space fail with **HTTP 400**. API guards reject overlong or blank documents and blank/overlong queries (generic query limit: 2048 characters); character counts are not token estimates. Original response text and indices are preserved. Native, Cohere, OpenAI and TEI conversions use the same document guards, including the optional Cohere chunking path. Schema/conversion validation errors remain HTTP 400/422 depending on the route; inference failures or incomplete/nonfinite score vectors are server errors (500/503), never silent lexical/Jaccard scores.
+
+Separate header/document encoding preserves the decoded formatted text but can produce different token IDs at their boundary than the official whole-pair tokenizer example. Exact reference-score parity is therefore not promised; validate relevance and batch invariance for the selected checkpoint rather than assuming identical upstream scores.
+
+MLX batches use causal **right padding** and gather each pair's real final suffix state before the vocabulary head. This avoids projecting a full `batch × sequence × vocabulary` logit tensor; it does not eliminate transformer attention/activation memory costs. Backend model info exposes configured/effective sequence and passage caps; the passage allowance additionally depends on each query's actual overhead. Torch CrossEncoder retains its native model/tokenizer budgeting.
+
+`RERANK_MAX_TOKENS_PER_DOC=4096` remains an **approximate Cohere chunking target** (`1 token ≈ 4 characters`), enabled only by `RERANK_ENABLE_CHUNKING=true`. It is not the exact MLX document cap, nor the API character guard. `MAX_SEQUENCE_LENGTH` independently controls embeddings. There is **no universal 8k chunk target**: choose retrieval chunks for document semantics, recall and latency, then fit them into the reranker's remaining pair allowance. Future OpenViking/client chunk-budget harmonization can use these distinct limits, but this change does not alter OpenViking, upstream chunking, existing indexes or stored embeddings.
 
 ## 📄 License
 

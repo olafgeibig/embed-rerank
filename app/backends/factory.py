@@ -105,7 +105,11 @@ class BackendFactory:
         # Use the provided model name instead of forcing MLX-specific model
         logger.info("Creating MLX backend", model_name=model_name, model_path=model_path)
 
-        return MLXBackend(model_name, model_path=model_path)
+        return MLXBackend(
+            model_name,
+            model_path=model_path,
+            max_sequence_length=kwargs.get("max_sequence_length", settings.max_sequence_length),
+        )
 
     @staticmethod
     def _create_torch_backend(model_name: str, **kwargs) -> TorchBackend:
@@ -114,7 +118,11 @@ class BackendFactory:
 
         logger.info("Creating Torch backend", model_name=model_name, device=device)
 
-        return TorchBackend(model_name, device=device)
+        return TorchBackend(
+            model_name,
+            device=device,
+            max_sequence_length=kwargs.get("max_sequence_length", settings.max_sequence_length),
+        )
 
     @staticmethod
     def get_available_backends() -> dict:
@@ -184,8 +192,9 @@ class BackendFactory:
             return MLXCrossEncoderBackend(
                 model_name,
                 device="mlx",
-                batch_size=kwargs.get("batch_size", 16),
-                max_length=kwargs.get("max_length", settings.rerank_max_seq_len or 512),
+                batch_size=kwargs.get("batch_size") or settings.rerank_batch_size,
+                max_length=kwargs.get("max_length") or settings.rerank_max_seq_len,
+                max_passage_tokens=kwargs.get("max_passage_tokens", settings.rerank_max_passage_tokens),
                 pooling=kwargs.get("pooling", settings.rerank_pooling),
                 score_norm=kwargs.get("score_norm", settings.rerank_score_norm),
             )

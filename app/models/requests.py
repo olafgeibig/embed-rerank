@@ -6,6 +6,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.utils.rerank_validation import validate_rerank_passages, validate_rerank_query
+
 
 class EmbedRequest(BaseModel):
     """Request model for embedding generation."""
@@ -162,32 +164,13 @@ class RerankRequest(BaseModel):
     @classmethod
     def validate_query(cls, v):
         """Validate query text."""
-        if not isinstance(v, str):
-            raise ValueError("Query must be a string")
-
-        if not v.strip():
-            raise ValueError("Query cannot be empty or whitespace only")
-
-        return v.strip()
+        return validate_rerank_query(v)
 
     @field_validator('passages')
     @classmethod
     def validate_passages(cls, v):
         """Validate passage inputs."""
-        if not v:
-            raise ValueError("passages cannot be empty")
-
-        for i, passage in enumerate(v):
-            if not isinstance(passage, str):
-                raise ValueError(f"Passage at index {i} must be a string")
-
-            if not passage.strip():
-                raise ValueError(f"Passage at index {i} cannot be empty or whitespace only")
-
-            if len(passage) > 4096:  # Reasonable character limit for passages
-                raise ValueError(f"Passage at index {i} too long: {len(passage)} > 4096 characters")
-
-        return v
+        return validate_rerank_passages(v)
 
     @field_validator('top_k')
     @classmethod

@@ -38,18 +38,36 @@ class Settings(BaseSettings):
             "cross_encoder_model",
         ),
     )
-    max_sequence_length: int = Field(default=512, description="Maximum input sequence length")
+    max_sequence_length: int = Field(
+        default=8192,
+        ge=1,
+        description="Embedding input token budget, including special tokens; bounded by known model limits",
+    )
 
-    # Reranker-specific optional settings
-    rerank_max_seq_len: Optional[int] = Field(
-        default=None,
-        description="Optional override for reranker max sequence length (pair)",
+    # Reranker-specific operational budgets (independent of embeddings)
+    rerank_max_seq_len: int = Field(
+        default=8192,
+        ge=1,
+        description="Total reranker pair token budget, bounded by native capacity",
         validation_alias=AliasChoices("RERANK_MAX_SEQ_LEN", "rerank_max_seq_len"),
     )
-    rerank_batch_size: Optional[int] = Field(
-        default=None,
-        description="Optional override for reranker batch size",
+    rerank_batch_size: int = Field(
+        default=1,
+        ge=1,
+        description="Reranker batch size (1 recommended on 16 GiB hosts)",
         validation_alias=AliasChoices("RERANK_BATCH_SIZE", "rerank_batch_size"),
+    )
+    rerank_max_passage_tokens: int = Field(
+        default=6144,
+        ge=1,
+        description="Exact MLX document-token cap, also bounded by remaining pair space",
+        validation_alias=AliasChoices("RERANK_MAX_PASSAGE_TOKENS", "rerank_max_passage_tokens"),
+    )
+    rerank_max_passage_chars: int = Field(
+        default=65536,
+        ge=1,
+        description="API safety limit per original rerank document in characters",
+        validation_alias=AliasChoices("RERANK_MAX_PASSAGE_CHARS", "rerank_max_passage_chars"),
     )
     # Reranker pooling and score normalization (experimental MLX)
     rerank_pooling: Literal["mean", "cls"] = Field(
@@ -181,8 +199,6 @@ class Settings(BaseSettings):
     @field_validator(
         "output_embedding_dimension",
         "default_max_tokens_override",
-        "rerank_max_seq_len",
-        "rerank_batch_size",
         mode="before",
     )
     @classmethod
@@ -190,6 +206,15 @@ class Settings(BaseSettings):
         """Treat empty-string values for optional int fields as None to avoid validation errors."""
         if isinstance(v, str) and v.strip() == "":
             return None
+        return v
+
+    @field_validator(
+        "rerank_max_seq_len", "rerank_batch_size", "rerank_max_passage_tokens", "rerank_max_passage_chars", mode="before"
+    )
+    @classmethod
+    def blank_rerank_limits_to_defaults(cls, v, info):
+        if isinstance(v, str) and not v.strip():
+            return cls.model_fields[info.field_name].default
         return v
 
     @field_validator("rerank_max_tokens_per_doc", mode="before")

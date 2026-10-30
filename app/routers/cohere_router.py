@@ -17,6 +17,7 @@ from ..models.requests import RerankRequest
 from ..models.responses import ErrorResponse
 from ..services.reranking_service import RerankingService
 from ..utils.rerank_chunking import aggregate_scores, chunk_documents
+from ..utils.rerank_validation import validate_rerank_passages, validate_rerank_query
 
 
 router = APIRouter(
@@ -132,6 +133,9 @@ async def rerank_v1(request: CohereRerankRequest, service: RerankingService = De
     while gaining significant performance improvements on Apple Silicon.
     """
     try:
+        # Guard ORIGINAL documents before optional chunking can make them smaller.
+        query = validate_rerank_query(request.query)
+        validate_rerank_passages(request.documents)
         # Optional document chunking (LightRAG parity) for models with strict token limits.
         if settings.rerank_enable_chunking:
             original_docs = request.documents
@@ -151,7 +155,7 @@ async def rerank_v1(request: CohereRerankRequest, service: RerankingService = De
                     ),
                 )
 
-            scores = await service.compute_relevance_scores(query=request.query, passages=chunked_docs)
+            scores = await service.compute_relevance_scores(query=query, passages=chunked_docs)
             aggregated = aggregate_scores(
                 scores=scores,
                 doc_indices=doc_indices,

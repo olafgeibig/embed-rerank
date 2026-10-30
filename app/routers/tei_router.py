@@ -243,7 +243,7 @@ async def tei_rerank(
     try:
         logger.info(
             "🚀 TEI-compatible reranking request started",
-            query=request.query[:50] + "..." if len(request.query) > 50 else request.query,
+            query_length=len(request.query),
             num_texts=len(request.texts),
             raw_scores=request.raw_scores,
             return_text=request.return_text,

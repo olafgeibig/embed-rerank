@@ -12,6 +12,7 @@ import torch
 from sentence_transformers import SentenceTransformer
 
 from ..utils.device import get_optimal_torch_device
+from ..utils.embedding_limits import resolve_embedding_limit
 from ..utils.logger import setup_logging
 from .base import BaseBackend, EmbeddingResult
 
@@ -21,16 +22,19 @@ logger = setup_logging()
 class TorchBackend(BaseBackend):
     """PyTorch-based embedding backend with Apple Silicon MPS support."""
 
-    def __init__(self, model_name: str, device: str = None):
+    def __init__(self, model_name: str, device: str = None, max_sequence_length: int = 8192):
         """
         Initialize TorchBackend.
 
         Args:
             model_name: HuggingFace model identifier
             device: Device to use (auto-detect if None)
+            max_sequence_length: Configured maximum embedding sequence length
         """
         super().__init__(model_name, device)
         self.device = device or get_optimal_torch_device()
+        self.configured_max_sequence_length = max_sequence_length
+        self.max_sequence_length = resolve_embedding_limit(max_sequence_length)
         self._executor = ThreadPoolExecutor(max_workers=1)
 
         logger.info("Initializing TorchBackend", model_name=model_name, device=self.device)
@@ -69,6 +73,16 @@ class TorchBackend(BaseBackend):
         try:
             # Load model with specified device
             model = SentenceTransformer(self.model_name, device=self.device)
+            self.max_sequence_length = resolve_embedding_limit(
+                self.configured_max_sequence_length,
+                getattr(model, "max_seq_length", None),
+            )
+            model.max_seq_length = self.max_sequence_length
+            logger.info(
+                "Resolved Torch embedding sequence length",
+                configured_max_sequence_length=self.configured_max_sequence_length,
+                max_sequence_length=self.max_sequence_length,
+            )
 
             # Optimize for inference
             model.eval()
@@ -101,7 +115,7 @@ class TorchBackend(BaseBackend):
         if not self._is_loaded:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
-        self.validate_inputs(texts)
+        self.validate_inputs(texts, max_length=self.max_sequence_length)
         start_time = time.time()
 
         logger.info("Generating embeddings", num_texts=len(texts), batch_size=batch_size, device=self.device)
@@ -179,6 +193,8 @@ class TorchBackend(BaseBackend):
             "device": self.device,
             "is_loaded": self._is_loaded,
             "load_time": self._load_time,
+            "configured_max_sequence_length": self.configured_max_sequence_length,
+            "max_sequence_length": self.max_sequence_length,
         }
 
         if self._is_loaded and self.model:

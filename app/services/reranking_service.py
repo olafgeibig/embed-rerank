@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 from app.backends.base import BackendManager
 from app.models.requests import RerankRequest
 from app.models.responses import RerankResponse, RerankResult
+from app.config import settings
+from app.utils.rerank_validation import validate_rerank_passages, validate_rerank_query, validate_rerank_scores
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ class RerankingService:
         try:
             # Validate backend availability
             if not self.backend_manager.is_available():
-                raise ValueError("No backend available for reranking")
+                raise RuntimeError("No backend available for reranking")
 
             # Get reranking scores from backend
             scores = await self._compute_relevance_scores(query=request.query, passages=request.passages)
@@ -95,6 +97,8 @@ class RerankingService:
             logger.info(f"Successfully processed rerank request {request_id} in {processing_time:.3f}s")
             return response
 
+        except ValueError:
+            raise
         except Exception as e:
             processing_time = time.time() - start_time
             error_msg = f"Failed to rerank passages: {str(e)}"
@@ -131,19 +135,22 @@ class RerankingService:
             List of relevance scores
         """
         # Get current backend
+        query = validate_rerank_query(query)
+        validate_rerank_passages(passages)
         backend = self.backend_manager.get_current_backend()
         if backend is None:
-            raise ValueError("No backend available")
+            raise RuntimeError("No backend available")
 
         # Check if backend supports reranking
         if not hasattr(backend, 'rerank_passages'):
             # Fallback to embedding-based similarity
             logger.warning("Backend doesn't support reranking, falling back to embedding similarity")
-            return await self._compute_embedding_similarity(query, passages)
+            scores = await self._compute_embedding_similarity(query, passages)
+            return validate_rerank_scores(scores, len(passages))
 
         # Use backend's reranking method
         scores = await backend.rerank_passages(query=query, passages=passages)
-        return scores
+        return validate_rerank_scores(scores, len(passages))
 
     async def _compute_embedding_similarity(self, query: str, passages: List[str]) -> List[float]:
         """
@@ -195,6 +202,7 @@ class RerankingService:
             List of ranked results
         """
         # Create (score, index, passage) tuples
+        validate_rerank_scores(scores, len(passages))
         scored_passages = [(score, idx, passage) for idx, (score, passage) in enumerate(zip(scores, passages))]
 
         # Sort by score (descending)
@@ -232,7 +240,7 @@ class RerankingService:
             "supported_operations": ["rerank_passages"],
             "max_passages": 1000,
             "max_query_length": 2048,
-            "max_passage_length": 4096,
+            "max_passage_length": settings.rerank_max_passage_chars,
             "fallback_method": "embedding_similarity",
         }
 

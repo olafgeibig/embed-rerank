@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from ..utils.logger import setup_logging
+from ..utils.embedding_limits import resolve_embedding_limit
 from .base import BaseBackend, EmbeddingResult
 
 logger = setup_logging()
@@ -72,7 +73,12 @@ class MLXBackend(BaseBackend):
     by running the complete transformer forward pass with last-token pooling.
     """
 
-    def __init__(self, model_name: str = "mlx-community/Qwen3-Embedding-4B-4bit-DWQ", model_path: Optional[str] = None):
+    def __init__(
+        self,
+        model_name: str = "mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
+        model_path: Optional[str] = None,
+        max_sequence_length: int = 8192,
+    ):
         if not MLX_AVAILABLE:
             raise RuntimeError(
                 "MLX Framework Required!\n"
@@ -82,6 +88,8 @@ class MLXBackend(BaseBackend):
 
         super().__init__(model_name, "mlx")
         self.model_path = model_path
+        self.configured_max_sequence_length = max_sequence_length
+        self.max_sequence_length = resolve_embedding_limit(max_sequence_length)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="MLX-Worker")
         self.model = None
         self.tokenizer = None
@@ -107,6 +115,19 @@ class MLXBackend(BaseBackend):
             loop = asyncio.get_event_loop()
             self.model, self.tokenizer, self.config, self._hf_tokenizer = await loop.run_in_executor(
                 self._executor, self._load_model_sync
+            )
+
+            text_config = self.config.get("text_config") if isinstance(self.config, dict) else None
+            self.max_sequence_length = resolve_embedding_limit(
+                self.configured_max_sequence_length,
+                self.config.get("max_position_embeddings") if isinstance(self.config, dict) else None,
+                text_config.get("max_position_embeddings") if isinstance(text_config, dict) else None,
+                getattr(self._hf_tokenizer, "model_max_length", None),
+            )
+            logger.info(
+                "Resolved MLX embedding sequence length",
+                configured_max_sequence_length=self.configured_max_sequence_length,
+                max_sequence_length=self.max_sequence_length,
             )
 
             self._load_time = time.time() - start_time
@@ -196,7 +217,7 @@ class MLXBackend(BaseBackend):
         if not self._is_loaded:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
-        self.validate_inputs(texts)
+        self.validate_inputs(texts, max_length=self.max_sequence_length)
         start_time = time.time()
 
         logger.info("Generating embeddings with MLX", num_texts=len(texts), batch_size=batch_size, device="mlx")
@@ -241,11 +262,28 @@ class MLXBackend(BaseBackend):
             for i in range(0, len(texts), batch_size):
                 batch_texts = texts[i : i + batch_size]
 
+                unpadded_enc = self._hf_tokenizer(
+                    batch_texts,
+                    padding=False,
+                    truncation=False,
+                    return_tensors=None,
+                )
+                token_lengths = [len(input_ids) for input_ids in unpadded_enc["input_ids"]]
+                truncated_count = sum(length > self.max_sequence_length for length in token_lengths)
+                if truncated_count:
+                    logger.warning(
+                        "Embedding input truncated at backend token limit",
+                        truncated_count=truncated_count,
+                        max_input_tokens=max(token_lengths, default=0),
+                        max_sequence_length=self.max_sequence_length,
+                    )
+                del unpadded_enc
+
                 enc = self._hf_tokenizer(
                     batch_texts,
                     padding=True,
                     truncation=True,
-                    max_length=512,
+                    max_length=self.max_sequence_length,
                     return_tensors="np",
                 )
 
@@ -300,6 +338,8 @@ class MLXBackend(BaseBackend):
             "is_loaded": self._is_loaded,
             "load_time": self._load_time,
             "pooling": "last_token",
+            "configured_max_sequence_length": self.configured_max_sequence_length,
+            "max_sequence_length": self.max_sequence_length,
         }
 
         if self._is_loaded:
@@ -393,7 +433,7 @@ class _MLXTokenizerAdapter:
         self.pad_token = ""
         self.eos_token = ""
 
-    def __call__(self, texts, padding=True, truncation=True, max_length=512, return_tensors="np"):
+    def __call__(self, texts, padding=True, truncation=True, max_length=8192, return_tensors="np"):
         all_ids = []
         for t in texts if isinstance(texts, list) else [texts]:
             ids = self._tok.encode(t)
@@ -401,17 +441,23 @@ class _MLXTokenizerAdapter:
                 ids = ids[:max_length]
             all_ids.append(ids)
 
-        max_len = max(len(ids) for ids in all_ids)
-        padded = []
-        masks = []
-        for ids in all_ids:
-            pad_len = max_len - len(ids)
-            padded.append(ids + [0] * pad_len)
-            masks.append([1] * len(ids) + [0] * pad_len)
+        if padding:
+            max_len = max(len(ids) for ids in all_ids)
+            padded = []
+            masks = []
+            for ids in all_ids:
+                pad_len = max_len - len(ids)
+                padded.append(ids + [0] * pad_len)
+                masks.append([1] * len(ids) + [0] * pad_len)
+        else:
+            padded = all_ids
+            masks = [[1] * len(ids) for ids in all_ids]
 
-        import numpy as _np
+        if return_tensors == "np":
+            import numpy as _np
 
-        return {
-            "input_ids": _np.array(padded, dtype=_np.int64),
-            "attention_mask": _np.array(masks, dtype=_np.int64),
-        }
+            return {
+                "input_ids": _np.array(padded, dtype=_np.int64),
+                "attention_mask": _np.array(masks, dtype=_np.int64),
+            }
+        return {"input_ids": padded, "attention_mask": masks}

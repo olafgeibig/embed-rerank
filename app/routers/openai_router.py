@@ -661,6 +661,8 @@ async def openai_rerank(request: OpenAIRerankRequest) -> Dict[str, Any]:
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": {"message": str(e), "type": "invalid_input"}})
     except Exception as e:
         logger.error("💥 OpenAI-compatible rerank failed", error=str(e))
         raise HTTPException(status_code=500, detail={"error": {"message": str(e), "type": "internal"}})

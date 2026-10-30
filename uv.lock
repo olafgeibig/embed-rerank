@@ -1,6 +1,10 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.13"
+
+[options]
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer-span = "PT72H"
 
 [[package]]
 name = "annotated-doc"
@@ -439,37 +443,37 @@ wheels = [
 
 [package.optional-dependencies]
 cublas = [
-    { name = "nvidia-cublas", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-cublas" },
 ]
 cudart = [
-    { name = "nvidia-cuda-runtime", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-cuda-runtime" },
 ]
 cufft = [
-    { name = "nvidia-cufft", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-cufft" },
 ]
 cufile = [
-    { name = "nvidia-cufile", marker = "sys_platform == 'linux'" },
+    { name = "nvidia-cufile" },
 ]
 cupti = [
-    { name = "nvidia-cuda-cupti", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-cuda-cupti" },
 ]
 curand = [
-    { name = "nvidia-curand", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-curand" },
 ]
 cusolver = [
-    { name = "nvidia-cusolver", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-cusolver" },
 ]
 cusparse = [
-    { name = "nvidia-cusparse", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-cusparse" },
 ]
 nvjitlink = [
-    { name = "nvidia-nvjitlink", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-nvjitlink" },
 ]
 nvrtc = [
-    { name = "nvidia-cuda-nvrtc", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-cuda-nvrtc" },
 ]
 nvtx = [
-    { name = "nvidia-nvtx", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-nvtx" },
 ]
 
 [[package]]
@@ -1139,7 +1143,7 @@ name = "mlx"
 version = "0.31.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "mlx-metal", marker = "sys_platform == 'darwin'" },
+    { name = "mlx-metal" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/44/45/04465da443634b23fb11670bbd2f7538b1ed43ffc5e0de44a95b3c29e9c1/mlx-0.31.1-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:9a6d3410fc951bd28508fed9c1ab5d9903f6f6bb101c3a5d63d4191d49a384a1", size = 574268, upload-time = "2026-03-12T02:16:17.27Z" },
@@ -1156,7 +1160,7 @@ version = "0.31.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jinja2" },
-    { name = "mlx", marker = "sys_platform == 'darwin'" },
+    { name = "mlx" },
     { name = "numpy" },
     { name = "protobuf" },
     { name = "pyyaml" },

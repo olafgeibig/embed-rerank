@@ -135,6 +135,9 @@ class EmbeddingService:
             (처리된 텍스트 리스트, 처리 정보 딕셔너리 리스트)
         """
         # 모델 메타데이터에서 토큰 제한 가져오기
+        backend_info = {}
+        recommended_max_tokens = 2048
+        discovered_absolute_max_tokens = 8192
         try:
             backend_info = self.backend_manager.get_current_backend_info()
             model_name = backend_info.get("model_name", self.config.model_name)
@@ -146,23 +149,25 @@ class EmbeddingService:
             if model_path:
                 metadata = extractor.extract_metadata_from_path(model_path)
                 recommended_max_tokens = metadata.get("recommended_max_tokens", 2048)
-                absolute_max_tokens = metadata.get("absolute_max_tokens", 8192)
-            else:
-                # 기본값 사용
-                recommended_max_tokens = 2048
-                absolute_max_tokens = 8192
+                discovered_absolute_max_tokens = metadata.get("absolute_max_tokens", 8192)
 
-            logger.info(f"📏 Model limits: recommended={recommended_max_tokens}, absolute={absolute_max_tokens} tokens")
+            logger.info(
+                f"📏 Model limits: recommended={recommended_max_tokens}, "
+                f"absolute={discovered_absolute_max_tokens} tokens"
+            )
         except Exception as e:
             logger.warning(f"⚠️  Failed to get model metadata, using defaults: {e}")
-            recommended_max_tokens = 2048
-            absolute_max_tokens = 8192
 
-        # Apply token limit override with explicit priority:
-        # 1) per-request override
-        # 2) env-configured default override (LightRAG parity: EMBEDDING_TOKEN_LIMIT)
-        # 3) model metadata recommended limit
-        max_tokens = recommended_max_tokens
+        configured_max_tokens = self.config.max_sequence_length
+        absolute_limits = [configured_max_tokens, discovered_absolute_max_tokens]
+        backend_max_tokens = backend_info.get("max_sequence_length")
+        if isinstance(backend_max_tokens, int) and not isinstance(backend_max_tokens, bool) and backend_max_tokens > 0:
+            absolute_limits.append(backend_max_tokens)
+        absolute_max_tokens = min(absolute_limits)
+
+        # By default, preprocess up to the effective absolute limit. Explicit
+        # overrides can lower it but must never increase the backend's limit.
+        max_tokens = absolute_max_tokens
 
         override = request.max_tokens_override
         override_source = "request"
@@ -213,14 +218,15 @@ class EmbeddingService:
                 absolute_max_tokens=absolute_max_tokens,
                 strategy=truncation_strategy,
                 auto_truncate=auto_truncate,
-                return_processing_info=return_processing_info,
+                return_processing_info=True,
             )
 
-            # 처리 통계 로깅
+            # Processing details are collected for every text so truncation can
+            # be logged even when the response does not expose that metadata.
             truncated_count = sum(1 for info in (processing_infos or []) if info.truncated)
             if truncated_count > 0:
-                logger.info(
-                    f"📊 Text processing summary: {truncated_count}/{len(request.texts)} texts truncated, "
+                logger.warning(
+                    f"Text processing summary: {truncated_count}/{len(request.texts)} texts truncated, "
                     f"strategy='{truncation_strategy}', max_tokens={max_tokens}"
                 )
 
