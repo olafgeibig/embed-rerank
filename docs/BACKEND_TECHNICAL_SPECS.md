@@ -4,6 +4,8 @@
 *Service Version: 1.0.0*  
 *Target Audience: Engineers, DevOps, System Architects*
 
+> Historical document: the figures and implementation descriptions below predate the full-transformer MLX refactor. Do not treat performance numbers, automatic recovery claims, or fixed context limits here as verified for this branch. See the [README](../README.md#mlx-backend-changes-in-this-branch) for current behavior and input budgets.
+
 ## 🎯 Overview
 
 This document provides detailed technical specifications for all current and planned backends in the embed-rerank service. Use this as a reference for implementation, debugging, and performance optimization.

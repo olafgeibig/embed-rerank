@@ -1,5 +1,7 @@
 # Fix: MLX Backend Produces Incorrect Re-Ranking Results
 
+> Historical refactoring record, not current operating documentation. The original implementation, test counts, padding, and memory use described below have since changed. For the current implementation and input budgets, see the repository README. Scores are historical observations, not a reproducible quality benchmark.
+
 ## Problem
 
 On macOS with Apple Silicon, the `/api/v1/rerank` endpoint returns semantically wrong results. Documents that are irrelevant to the query are ranked above relevant ones. For example, querying for "best skincare routine for sensitive skin" ranks kitchen cleaning products above skincare products.

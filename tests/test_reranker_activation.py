@@ -7,11 +7,11 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.backends.base import BaseBackend, BackendManager, EmbeddingResult
 from app.routers import reranking_router
-from app.main import app
 
 
 class FakeRerankerBackend(BaseBackend):
@@ -46,8 +46,8 @@ class FakeRerankerBackend(BaseBackend):
         return [max(0.0, 1.0 - 0.1 * i) for i in range(len(passages))]
 
 
-@pytest.fixture(scope="module")
-def client_with_fake_reranker():
+@pytest.fixture
+def client_with_fake_reranker(monkeypatch):
     # Install a dedicated reranker backend manager so router prefers it
     backend = FakeRerankerBackend()
     manager = BackendManager(backend)
@@ -59,8 +59,11 @@ def client_with_fake_reranker():
     loop.run_until_complete(manager.initialize())
     loop.close()
 
-    reranking_router.set_reranker_backend_manager(manager)
-
+    monkeypatch.setattr(reranking_router, "_reranker_backend_manager", manager)
+    app = FastAPI()
+    app.include_router(reranking_router.router)
+    # The dedicated backend must be preferred even when the embedding backend is not ready.
+    app.dependency_overrides[reranking_router.get_backend_manager] = lambda: None
     with TestClient(app) as c:
         yield c
 

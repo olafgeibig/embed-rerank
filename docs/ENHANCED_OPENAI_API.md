@@ -1,13 +1,15 @@
 # 🚀 Enhanced OpenAI Compatibility with Apple MLX Arguments
 
-This document describes the enhanced OpenAI-compatible API that provides full OpenAI SDK compatibility while offering additional configurable arguments for Apple MLX optimization.
+This document describes the OpenAI-compatible embedding endpoint and its optional request parameters.
+
+> Backend and device selection are server-level configuration. The request fields `backend_preference` and `device_preference` and corresponding `X-MLX-Backend` and `X-MLX-Device` headers are accepted for compatibility but do not switch the active backend or device. Performance figures below are historical estimates, not benchmarks of the current MLX implementation.
 
 ## ✨ Key Features
 
 - **🔄 Perfect OpenAI Compatibility**: Existing OpenAI SDK code works unchanged
 - **🔧 Enhanced Configuration**: Optional MLX-specific parameters for optimization
-- **🌐 Multiple Configuration Methods**: Request body fields, custom headers, or query parameters
-- **⚡ Apple Silicon Optimization**: Full control over MLX backend behavior
+- **🌐 Configuration Methods**: Selected request body fields or custom headers
+- **⚡ Apple Silicon Optimization**: Server-configured MLX backend
 - **📊 Enhanced Metrics**: Optional detailed performance information
 
 ## 🎯 Configuration Options
@@ -24,8 +26,6 @@ Add these optional fields to your OpenAI embeddings request:
   // 🚀 Enhanced MLX Configuration (All Optional)
   "batch_size": 32,                    // 📦 Processing batch size (1-128)
   "normalize": true,                   // 🎯 Normalize embeddings to unit length
-  "backend_preference": "mlx",         // 🧠 Backend: "mlx", "torch", "auto"
-  "device_preference": "mps",          // ⚡ Device: "mps", "cpu", "auto"  
   "max_tokens_per_text": 512,         // 📏 Maximum tokens per input text
   "return_timing": false               // ⏱️ Include detailed timing in response
 }
@@ -40,8 +40,6 @@ curl -X POST http://localhost:9000/v1/embeddings \
   -H "Content-Type: application/json" \
   -H "X-MLX-Batch-Size: 64" \
   -H "X-MLX-Normalize: true" \
-  -H "X-MLX-Backend: mlx" \
-  -H "X-MLX-Device: mps" \
   -d '{"input": ["Hello MLX"], "model": "text-embedding-ada-002"}'
 ```
 
@@ -84,22 +82,10 @@ When `return_timing: true`, the usage object includes additional metrics:
   - `false`: For applications needing raw embedding magnitudes
 
 ### `backend_preference` (string)
-- **Options**: `"mlx"`, `"torch"`, `"auto"`
-- **Default**: Uses server configuration
-- **Purpose**: Force specific backend usage
-- **Use Cases**:
-  - `"mlx"`: Maximum Apple Silicon performance
-  - `"torch"`: PyTorch MPS fallback
-  - `"auto"`: Automatic selection based on hardware
+- Accepted for compatibility, but does not select a backend. Configure `BACKEND` on the server.
 
 ### `device_preference` (string)
-- **Options**: `"mps"`, `"cpu"`, `"auto"`
-- **Default**: Uses backend's device detection
-- **Purpose**: Control which device processes the request
-- **Use Cases**:
-  - `"mps"`: Apple Silicon acceleration
-  - `"cpu"`: CPU processing (compatibility)
-  - `"auto"`: Best available device
+- Accepted for compatibility, but does not select a device. The backend determines the device.
 
 ### `max_tokens_per_text` (integer, 1-8192)
 - **Default**: Model's maximum context length
@@ -133,7 +119,6 @@ response = client.embeddings.create(
     extra_body={
         "batch_size": 16,
         "normalize": True,
-        "backend_preference": "mlx",
         "return_timing": True
     }
 )
@@ -151,8 +136,6 @@ response = client.embeddings.create(
     input=batch_of_texts,
     extra_body={
         "batch_size": 64,           # Large batches
-        "backend_preference": "mlx", # Force MLX
-        "device_preference": "mps",  # Force Apple Silicon
         "return_timing": True        # Monitor performance
     }
 )
@@ -166,7 +149,6 @@ response = client.embeddings.create(
     input=["Single text for fast processing"],
     extra_body={
         "batch_size": 1,            # Minimal batching
-        "backend_preference": "mlx",
         "return_timing": True
     }
 )
@@ -181,9 +163,7 @@ response = client.embeddings.create(
 - **High-throughput applications**: `batch_size: 64-128`
 
 ### Backend Selection
-- **Production workloads**: `backend_preference: "mlx"` for maximum performance
-- **Development/testing**: `backend_preference: "auto"` for flexibility
-- **Compatibility testing**: `backend_preference: "torch"` for fallback validation
+- Set `BACKEND=mlx`, `BACKEND=torch`, or `BACKEND=auto` in the server configuration; requests cannot switch the backend.
 
 ### Performance Monitoring
 - Always use `return_timing: true` during development and tuning
@@ -216,8 +196,7 @@ except Exception as e:
    - Set `max_tokens_per_text` to limit input size
 
 2. **Slower than expected performance**
-   - Ensure `backend_preference: "mlx"`
-   - Verify `device_used: "mps"` in response
+   - Verify the server backend configuration and the backend reported by health or timing metadata
    - Increase `batch_size` for throughput
 
 3. **Configuration not taking effect**
@@ -280,7 +259,6 @@ async def embed_texts(texts: List[str], batch_size: int = 32):
         input=texts,
         extra_body={
             "batch_size": batch_size,
-            "backend_preference": "mlx",
             "return_timing": True
         }
     )
@@ -304,4 +282,4 @@ async def embed_texts(texts: List[str], batch_size: int = 32):
 
 ---
 
-**🎯 You now have a fully configurable OpenAI-compatible endpoint that gives you complete control over Apple MLX performance while maintaining perfect SDK compatibility!**
+Request options do not override the server's backend or device configuration.

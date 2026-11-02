@@ -14,9 +14,16 @@
   </a>
 </p>
 
-Blazing‑fast local embeddings and true cross‑encoder reranking on Apple Silicon. Works with Native, OpenAI, TEI, and Cohere APIs.
+Local embeddings and cross-encoder reranking on Apple Silicon, with Native, OpenAI-compatible, TEI, and Cohere-compatible APIs.
 
 This page is a beginner‑friendly quick start. Detailed guides live in docs/.
+
+## MLX backend changes in this branch
+
+- MLX embeddings use `mlx-lm` for full transformer inference and last-token pooling instead of the former embedding lookup placeholder. Model-specific formatting and pooling still need validation for the chosen checkpoint.
+- The MLX Qwen3 reranker runs the full transformer and scores the `yes`/`no` output tokens. Right padding and final-state selection keep mixed-length batches independent; only the final states are projected to vocabulary logits.
+- Embedding context and reranker pair, passage, character and batch limits are configurable independently. Dedicated reranker inference errors and incomplete or nonfinite model scores fail rather than falling back to lexical ranking.
+- A ready dedicated reranker uses its own model; if none is configured or its initialization fails, reranking uses the embedding backend. The MLX embedding backend can fall back to word overlap if embedding-based reranking fails. Model availability and quantization do not by themselves establish retrieval quality; check health and response metadata for the active backend.
 
 ## 🌐 Four APIs, One Service
 
@@ -28,65 +35,45 @@ This page is a beginner‑friendly quick start. Detailed guides live in docs/.
 | **Cohere** | `/v1/rerank`, `/v2/rerank` | Cohere API replacement |
 | | `/docs` `/health` | More info. |
 
-## 📈 Performance Visualization
+## Performance
 
-### Latency Comparison (Projected)
-
-```
-Single Text Embedding Latency (milliseconds)
-
-Apple MLX    ████ 0.2ms
-PyTorch MPS  ████████████████████████████████████████████████ 45ms  
-PyTorch CPU  ████████████████████████████████████████████████████████████████████████████████████████████████████████ 120ms
-CUDA (Est.)  ████████████ 12ms
-Vulkan (Est.) ████████████████████████ 25ms
-
-0ms        25ms       50ms       75ms       100ms      125ms
-```
-
-### Throughput Comparison (texts/second)
-
-```
-Maximum Throughput (texts per second)
-
-Apple MLX     ████████████████████████████████████████████████████████████████████████████████████████████████████████ 35,000
-CUDA (Est.)   ████████████████████████████████ 8,000  
-PyTorch MPS   ██████ 1,500
-Vulkan (Est.) ████████████ 3,000
-PyTorch CPU   ██ 500
-
-0          10k        20k        30k        40k
-```
+Benchmark the actual model, input lengths, quantization and hardware used in your deployment. Historical figures in the performance documents predate the full-transformer MLX implementation and are not measurements of this branch.
 
 ## 🚀 Start here (60 seconds)
 
-1) Install and run (embeddings only)
+1) Run this branch from a checkout on Apple Silicon (Python 3.13+ and [uv](https://docs.astral.sh/uv/) required)
 
 ```bash
-pip install embed-rerank
+uv sync --extra mlx
+cp -n .env.example .env  # preserve an existing .env
+```
 
-# Minimal .env
-cat > .env <<'ENV'
+Edit `.env` to select the embedding model and server address, for example:
+
+```env
 BACKEND=auto
 MODEL_NAME=mlx-community/Qwen3-Embedding-4B-4bit-DWQ
 PORT=9000
-HOST=0.0.0.0
-ENV
-
-embed-rerank  # http://localhost:9000
+HOST=127.0.0.1
 ```
 
-Want 2560‑D vectors by default? Add this to .env and restart:
-
 ```bash
-cat >> .env <<'ENV'
+uv run --extra mlx embed-rerank  # http://localhost:9000
+```
+
+The published PyPI package may not contain the changes in this branch. Downloading model weights may require significant disk space and model-specific license review.
+
+Want 2560‑D vectors by default for the example Qwen model? Set these values in `.env` and restart:
+
+```env
 # Use the model hidden_size (2560 for Qwen3-Embedding-4B) as output dimension
 DIMENSION_STRATEGY=hidden_size
 # Or enforce a fixed size (pads/truncates as needed):
 # OUTPUT_EMBEDDING_DIMENSION=2560
 # DIMENSION_STRATEGY=pad_or_truncate
-ENV
+```
 
+```bash
 # Verify
 curl -s http://localhost:9000/api/v1/embed/ \
   -H 'Content-Type: application/json' \
@@ -107,21 +94,23 @@ curl -s http://localhost:9000/api/v1/rerank/ \
   -d '{"query":"capital of france","documents":["Paris is the capital of France","Berlin is in Germany"],"top_n":2}' | jq '.results[0]'
 ```
 
-3) Add a dedicated reranker (better quality)
+3) Add a dedicated reranker
 
-```bash
-cat >> .env <<'ENV'
+Edit the existing settings in `.env` instead of appending duplicate entries. Select one model:
+
+```env
 # Torch cross-encoder (stable)
 RERANKER_BACKEND=auto
 RERANKER_MODEL_ID=cross-encoder/ms-marco-MiniLM-L-6-v2
 
-# MLX reranker (Apple Silicon). Required for MLX models:
+# Or an MLX Qwen3 reranker (Apple Silicon):
 # RERANKER_BACKEND=mlx
-# RERANKER_MODEL_NAME=vserifsaglam/Qwen3-Reranker-4B-4bit-MLX
-ENV
+# RERANKER_MODEL_ID=vserifsaglam/Qwen3-Reranker-4B-4bit-MLX
+```
 
+```bash
 # Optional: pre-download the MLX reranker to the default HF cache
-# ./download-rerank-model.sh
+# ./tools/download-rerank-model.sh
 
 # Restart server, then call Native or OpenAI-compatible rerank
 curl -s http://localhost:9000/api/v1/rerank/ \
@@ -141,15 +130,18 @@ open http://localhost:9000/health/
 ```
 
 Notes
-- OpenAI drop-in supported for both embeddings and rerank (/v1/embeddings, /v1/rerank). See docs for a tiny SDK example.
+- OpenAI-compatible endpoints are `/v1/embeddings` and `/v1/openai/rerank`; `/v1/rerank` is Cohere-compatible.
 - Scores may be auto‑sigmoid‑normalized for OpenAI clients by default (disable via `OPENAI_RERANK_AUTO_SIGMOID=false`).
+- The Qwen3 MLX reranker already outputs a yes/no probability; OpenAI auto-sigmoid applies another sigmoid. Disable it if the original probabilities are needed.
 - The root endpoint `/` shows both `embedding_dimension` (served) and `hidden_size` (model config) for clarity.
 - Reranker backend `auto` defaults to Torch for compatibility; MLX reranker models require `RERANKER_BACKEND=mlx`.
 
-Run the full validation suite
+Run the test suite:
 ```bash
-./tools/server-tests.sh --full
+uv run --extra mlx --extra dev pytest
 ```
+
+Some tests initialize models, may download weights and can use significant memory even without changing a running service; check test markers and skip reasons. `./tools/server-tests.sh --full` is a separate live-server validation, not a unit-test substitute. CI runs a model-free regression subset and does not verify real MLX inference.
 
 ## 🧭 Pick your path
 
@@ -231,7 +223,7 @@ overhead = tokenized instruction + query + document label + system/chat wrappers
 document allowance = min(RERANK_MAX_PASSAGE_TOKENS, effective pair cap - overhead)
 ```
 
-The header and document are tokenized separately, then concatenated with the wrappers and suffix. Instruction/query/template tokens are preserved; only document token IDs are truncated. Truncation warnings contain numeric counts/limits, not query/document text. Queries leaving no document-token space fail with **HTTP 400**. API guards reject overlong or blank documents and blank/overlong queries (generic query limit: 2048 characters); character counts are not token estimates. Original response text and indices are preserved. Native, Cohere, OpenAI and TEI conversions use the same document guards, including the optional Cohere chunking path. Schema/conversion validation errors remain HTTP 400/422 depending on the route; inference failures or incomplete/nonfinite score vectors are server errors (500/503), never silent lexical/Jaccard scores.
+The header and document are tokenized separately, then concatenated with the wrappers and suffix. Instruction/query/template tokens are preserved; only document token IDs are truncated. Truncation warnings contain numeric counts/limits, not query/document text. Queries leaving no document-token space fail with **HTTP 400**. API guards reject overlong or blank documents and blank/overlong queries (generic query limit: 2048 characters); character counts are not token estimates. Original response text and indices are preserved. Native, Cohere, OpenAI and TEI conversions use the same document guards, including the optional Cohere chunking path. Schema/conversion validation errors remain HTTP 400/422 depending on the route. Dedicated MLX reranker inference failures and incomplete/nonfinite score vectors are server errors (500/503), not lexical/Jaccard scores. Embedding-based reranking has different fallback behavior as described above.
 
 Separate header/document encoding preserves the decoded formatted text but can produce different token IDs at their boundary than the official whole-pair tokenizer example. Exact reference-score parity is therefore not promised; validate relevance and batch invariance for the selected checkpoint rather than assuming identical upstream scores.
 

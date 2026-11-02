@@ -74,6 +74,13 @@ path = "app/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.hermes",
+  "/test-results",
+  "**/.DS_Store",
+]
+
 [tool.hatch.envs.default]
 dependencies = [
   "coverage[toml]>=6.5",

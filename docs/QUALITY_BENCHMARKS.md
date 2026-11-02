@@ -1,6 +1,6 @@
 # Rerank Quality Benchmarks
 
-Use these lightweight tools to compare reranker configurations (Torch vs MLX, pooling, normalization).
+Use these lightweight tools to compare reranker configurations (for example Torch vs MLX) on fixed inputs and relevance judgments.
 
 ## Quick check (tiny dataset)
 ```bash
@@ -29,5 +29,5 @@ python tools/tests/quality-rerank-only.py --host http://localhost:9000 --k 3 --j
 - nDCG@k – graded relevance quality of the top-k ranking
 
 ## Tips
-- If your client expects scores in [0,1], set `RERANK_SCORE_NORM=sigmoid` for MLX reranker or rely on OpenAI auto-sigmoid features.
-- Prefer the dedicated reranker for best quality. MLX v1 is experimental: try `RERANK_POOLING=cls` and `RERANK_SCORE_NORM=sigmoid` as a baseline.
+- The MLX Qwen3 scorer already returns a yes/no probability. `RERANK_POOLING` and `RERANK_SCORE_NORM` do not change this scorer. OpenAI auto-sigmoid applies an additional sigmoid; disable it with `OPENAI_RERANK_AUTO_SIGMOID=false` to preserve raw probabilities.
+- Keep queries, document pools, judgments and input budgets fixed when comparing models. Fixed-pool ranking quality does not measure whether retrieval found the right documents in the first place.

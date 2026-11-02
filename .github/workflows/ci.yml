@@ -30,15 +30,28 @@ jobs:
         isort --check-only --profile black app/ tests/
         flake8 app/ tests/ --max-line-length=120 --extend-ignore=E203,W503
         
-    - name: Run core tests
+    - name: Run core and model-free MLX regression tests
       env:
         BACKEND: torch
         LOG_LEVEL: ERROR
         CI: true
         PYTHONPATH: .
+        HF_HUB_OFFLINE: "1"
+        TRANSFORMERS_OFFLINE: "1"
       run: |
-        # Run lightweight CI tests only
-        pytest tests/test_ci_quick.py -v --tb=short
+        pytest -q --tb=short \
+          tests/test_ci_quick.py \
+          tests/test_health_reranker_info.py \
+          tests/test_reranker_activation.py \
+          tests/test_mlx_embedding_tokenization.py \
+          tests/test_mlx_reranker_safety.py \
+          tests/test_embedding_context_backends.py \
+          tests/test_embedding_context_factory.py \
+          tests/test_embedding_context_preprocessing.py \
+          tests/test_embedding_context_settings.py \
+          tests/test_embedding_limits.py \
+          tests/test_reranker_settings.py \
+          tests/test_reranker_api_safety.py
         
     - name: Test imports
       run: |

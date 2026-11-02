@@ -1,5 +1,7 @@
 # 📊 Performance Comparison Charts
 
+> Historical figures: these numbers predate the full-transformer MLX refactor and are not benchmarks of the current implementation. Measure the selected model and workload on your own hardware.
+
 *Generated: August 25, 2025*  
 *Test Hardware: Apple Studio M4 Max, 128GB RAM*
 
